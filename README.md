@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Resume Match Analyzer 🚀
 
-## Getting Started
+A modern, full-stack AI platform to help job seekers parse resumes, analyze job descriptions, generate tailored content, and track applications.
 
-First, run the development server:
+## ✨ Features
+
+- **Resume Parsing**: AI-powered extraction of skills and experience from PDF resumes.
+- **Job Analysis**: ATS match scoring and missing keyword detection.
+- **AI Bullet Rewriting**: Optimize resume bullets with specific, measurable impact using OpenAI.
+- **Tailored Generation**: Automatically generate perfectly matched resumes and cover letters.
+- **Job Intelligence Engine**: Deep insights into recruiter priorities and gap analysis.
+- **Application Tracker**: Dashboard to manage your applications, interviews, and offers.
+- **Email Delivery**: Send your application package directly from the platform.
+- **API Cost Tracking**: Live monitoring of OpenAI API usage costs.
+
+## 🛠️ Tech Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **AI**: OpenAI GPT-4o-mini
+- **Styling**: Vanilla CSS + Tailwind
+- **PDF Generation**: jsPDF
+- **PDF Parsing**: pdfjs-dist
+- **Persistence**: LocalStorage (Privacy-first)
+- **Emails**: Nodemailer
+
+## 🚀 Getting Started
+
+### 1. Installation
+
+```bash
+git clone <repository-url>
+cd resume-matcher
+npm install
+```
+
+### 2. Environment Variables
+
+Create a `.env.local` file in the root directory:
+
+```env
+OPENAI_API_KEY=your-api-key
+SMTP_EMAIL=your-gmail@gmail.com
+SMTP_PASSWORD=your-app-password
+MAIN_API_KEY=your-main-tool-key
+```
+
+### 3. Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3001](http://localhost:3001) to see the application.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Production Deployment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The project is optimized for deployment on Vercel.
 
-## Learn More
+```bash
+npm run build
+npm run start
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 📜 Commands
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `npm run dev` - Start development server
+- `npm run build` - Create optimized production build
+- `npm run start` - Start production server
+- `npm run test` - Run unit tests (Vitest)
+- `npm run lint` - Run ESLint check
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🔒 Security & Privacy
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- All candidate data is stored in your browser's `localStorage`.
+- No personal resume data is persisted on the server.
+- API requests are sanitized and validated server-side.

@@ -32,9 +32,18 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# test files
+sample.pdf
 
 # vercel
 .vercel
+
+# docker
+Dockerfile
+docker-compose.yml
+.dockerignore
 
 # typescript
 *.tsbuildinfo
