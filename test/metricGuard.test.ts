@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findUnsupportedMetrics, findDroppedMetrics, auditRewrittenBullets } from '../lib/metricGuard';
+import { findUnsupportedMetrics, findDroppedMetrics, auditRewrittenBullets, toBulletText, splitOnFlagged } from '../lib/metricGuard';
 
 describe('findUnsupportedMetrics', () => {
   it('flags a percentage invented out of nothing', () => {
@@ -193,5 +193,77 @@ describe('audit uses the user bullets, not the model echo', () => {
     );
     expect(bullets[0].unsupported_metrics).toBeUndefined(); // 5 is real
     expect(bullets[1].unsupported_metrics).toEqual(['40']); // 40 invented
+  });
+});
+
+describe('source bullets accept both wire shapes', () => {
+  // Regression: extractBullets returns { original } objects, not strings.
+  // Coercing those to '' emptied the baseline and silently disabled the audit —
+  // every unit test still passed because they all passed plain strings.
+  it('reads { original } objects from extractBullets', () => {
+    expect(toBulletText({ original: 'Built dashboards' })).toBe('Built dashboards');
+  });
+
+  it('reads plain strings', () => {
+    expect(toBulletText('Built dashboards')).toBe('Built dashboards');
+  });
+
+  it('degrades to empty for junk', () => {
+    expect(toBulletText(null)).toBe('');
+    expect(toBulletText({ nope: 1 })).toBe('');
+  });
+
+  it('still audits when given object-shaped source bullets', () => {
+    const { bullets, warning } = auditRewrittenBullets(
+      [{ original: 'Built dashboards', improved: 'Built 12 dashboards' }],
+      { sourceBullets: [{ original: 'Built dashboards' }] }
+    );
+    expect(bullets[0].unsupported_metrics).toEqual(['12']);
+    expect(warning).toBeDefined();
+  });
+
+  it('preserves the real original text for display', () => {
+    const { bullets } = auditRewrittenBullets(
+      [{ original: 'paraphrased by model', improved: 'Led 5 analysts' }],
+      { sourceBullets: [{ original: 'Managed 5 analysts' }] }
+    );
+    expect(bullets[0].original).toBe('Managed 5 analysts');
+  });
+});
+
+describe('splitOnFlagged (drives the inline highlight)', () => {
+  it('puts flagged figures on odd indices', () => {
+    const parts = splitOnFlagged('Built 12 dashboards', ['12']);
+    expect(parts[1]).toBe('12');
+    expect(parts.filter((_, i) => i % 2 === 1)).toEqual(['12']);
+  });
+
+  it('highlights every occurrence', () => {
+    const parts = splitOnFlagged('Cut 40% and 40% again', ['40']);
+    expect(parts.filter((_, i) => i % 2 === 1)).toEqual(['40', '40']);
+  });
+
+  it('matches a comma-formatted number from its normalized token', () => {
+    const parts = splitOnFlagged('Processed 1,200 records', ['1200']);
+    expect(parts.filter((_, i) => i % 2 === 1)).toEqual(['1,200']);
+  });
+
+  it('prefers the longest token when one nests inside another', () => {
+    const parts = splitOnFlagged('Handled 1200 rows', ['1200', '1']);
+    expect(parts.filter((_, i) => i % 2 === 1)).toEqual(['1200']);
+  });
+
+  it('matches a pluralized scale word', () => {
+    const parts = splitOnFlagged('Handled millions of rows', ['million']);
+    expect(parts.filter((_, i) => i % 2 === 1)).toEqual(['millions']);
+  });
+
+  it('returns the text untouched when nothing is flagged', () => {
+    expect(splitOnFlagged('Built dashboards', [])).toEqual(['Built dashboards']);
+  });
+
+  it('rejoins to exactly the original text', () => {
+    const text = 'Cut 40% and processed 1,200 rows';
+    expect(splitOnFlagged(text, ['40', '1200']).join('')).toBe(text);
   });
 });

@@ -96,12 +96,55 @@ export interface BulletRewrite {
   dropped_metrics?: string[];
 }
 
+/**
+ * Coerce a source bullet to its text.
+ *
+ * Callers pass either plain strings or the `{ original }` objects that
+ * extractBullets produces. Getting this wrong silently empties the baseline,
+ * which disables the audit entirely rather than failing loudly — so both
+ * shapes are handled here, where they are covered by tests.
+ */
+export function toBulletText(bullet: unknown): string {
+  if (typeof bullet === 'string') return bullet;
+  const original = (bullet as { original?: unknown })?.original;
+  return typeof original === 'string' ? original : '';
+}
+
+/** Build a matcher for one flagged token, tolerating "1,200" vs "1200". */
+function tokenPattern(token: string): string {
+  if (/^\d+$/.test(token)) {
+    // Allow a thousands separator between any two digits.
+    return token.split('').join(',?');
+  }
+  // Scale words ("million") may appear pluralized in the rendered text.
+  return `${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?`;
+}
+
+/**
+ * Split `text` so the flagged figures land on the ODD indices, ready for a
+ * renderer to wrap them. Returns a single-element array when nothing is flagged.
+ *
+ * Lives here rather than in the component so the index contract is unit-tested;
+ * getting it wrong silently highlights the wrong words.
+ */
+export function splitOnFlagged(text: string, flagged: string[] = []): string[] {
+  if (!text) return [''];
+  if (flagged.length === 0) return [text];
+
+  // Longest first, so "1200" wins over a bare "1" nested inside it.
+  const ordered = [...flagged].sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(`(${ordered.map(tokenPattern).join('|')})`, 'gi');
+
+  return text.split(pattern);
+}
+
 export interface AuditOptions {
   /**
    * The user's actual bullets, positionally aligned with the model's output.
    * Authoritative baseline — the model's own `original` field is only a fallback.
+   * Accepts plain strings or `{ original }` objects.
    */
-  sourceBullets?: string[];
+  sourceBullets?: unknown[];
   /** Keywords the model was told to weave in; numbers inside them aren't fabrications. */
   supportedTerms?: string[];
 }
@@ -138,7 +181,8 @@ export function auditRewrittenBullets(
     // The model authors BOTH fields, so its `original` cannot be trusted as the
     // baseline — a model that quietly paraphrases the original would hide its own
     // fabrication. Compare against the user's actual bullet whenever we have it.
-    const original = typeof sourceBullets[index] === 'string' ? sourceBullets[index] : modelOriginal;
+    const sourceText = index < sourceBullets.length ? toBulletText(sourceBullets[index]) : '';
+    const original = sourceText || modelOriginal;
 
     const unsupported = findUnsupportedMetrics(original, improved, supportedTerms);
     const dropped = findDroppedMetrics(original, improved);

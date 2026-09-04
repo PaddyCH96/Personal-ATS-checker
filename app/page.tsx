@@ -8,6 +8,7 @@ import { saveResumeVersion } from '@/lib/storage';
 import CoverLetterPanel from '@/components/CoverLetterPanel';
 import EmailResumeModal from '@/components/EmailResumeModal';
 import SaveJobModal from '@/components/SaveJobModal';
+import { HighlightedMetrics, MetricNotice } from '@/components/MetricFlags';
 
 // ----- Interfaces -----
 
@@ -18,6 +19,10 @@ interface Bullet {
 interface RewrittenBullet {
   original: string;
   improved: string;
+  /** Figures the AI added that were not in the original — verify before using. */
+  unsupported_metrics?: string[];
+  /** Real figures from the original that the rewrite discarded. */
+  dropped_metrics?: string[];
 }
 
 interface MatchResult {
@@ -100,6 +105,8 @@ export default function Home() {
   // Phase 2
   const [rewriting, setRewriting] = useState(false);
   const [rewrittenBullets, setRewrittenBullets] = useState<RewrittenBullet[] | null>(null);
+  const [metricWarning, setMetricWarning] = useState<string | null>(null);
+  const [droppedMetricsNotice, setDroppedMetricsNotice] = useState<string | null>(null);
   const [rewriteError, setRewriteError] = useState<string | null>(null);
 
   // Phase 3
@@ -155,6 +162,8 @@ export default function Home() {
     setError(null);
     setResult(null);
     setRewrittenBullets(null);
+    setMetricWarning(null);
+    setDroppedMetricsNotice(null);
     setRewriteError(null);
     setTailoredResume(null);
     setJobIntelligence(null);
@@ -220,6 +229,10 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to rewrite bullets');
       setRewrittenBullets(data.rewritten_bullets);
+      // Surface the metric audit — a fabricated figure on a resume is worse
+      // than a bland bullet, so the user has to be able to see it.
+      setMetricWarning(data.warning ?? null);
+      setDroppedMetricsNotice(data.dropped_metrics_notice ?? null);
       calculateAndAddCost(data.usage);
     } catch (err: any) {
       setRewriteError(err.message);
@@ -749,12 +762,28 @@ export default function Home() {
             {rewrittenBullets && (
               <div className="mt-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <h3 className="text-xl font-bold mb-4 text-indigo-900 border-b pb-2">Improved Resume Bullets</h3>
+
+                {metricWarning && <MetricNotice tone="warning" message={metricWarning} />}
+                {droppedMetricsNotice && <MetricNotice tone="info" message={droppedMetricsNotice} />}
+
                 <div className="space-y-4">
                   {rewrittenBullets.map((bullet, idx) => (
-                    <div key={idx} className="bg-indigo-50/50 rounded-xl p-5 border border-indigo-100 grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    <div
+                      key={idx}
+                      className={`rounded-xl p-5 border grid grid-cols-1 md:grid-cols-2 gap-4 items-start ${
+                        bullet.unsupported_metrics?.length
+                          ? 'bg-amber-50/60 border-amber-200'
+                          : 'bg-indigo-50/50 border-indigo-100'
+                      }`}
+                    >
                       <div className="space-y-1">
                         <span className="text-xs font-bold tracking-wider text-neutral-400 uppercase">Original</span>
                         <p className="text-sm text-neutral-700">{bullet.original}</p>
+                        {bullet.dropped_metrics?.length ? (
+                          <p className="text-xs text-sky-700 pt-1">
+                            Dropped from the rewrite: <span className="font-semibold">{bullet.dropped_metrics.join(', ')}</span> — consider restoring.
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-1 relative md:border-l md:border-indigo-100 md:pl-4">
                         <span className="text-xs font-bold tracking-wider text-indigo-600 uppercase flex items-center gap-1">
@@ -763,7 +792,14 @@ export default function Home() {
                           </svg>
                           Improved
                         </span>
-                        <p className="text-sm font-medium text-neutral-900">{bullet.improved}</p>
+                        <p className="text-sm font-medium text-neutral-900">
+                          <HighlightedMetrics text={bullet.improved} flagged={bullet.unsupported_metrics} />
+                        </p>
+                        {bullet.unsupported_metrics?.length ? (
+                          <p className="text-xs text-amber-800 pt-1">
+                            Highlighted figures were not in your original — verify before using.
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   ))}
