@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getOpenAI, withRetry, formatApiError, sanitize } from '@/lib/apiUtils';
+import { createJsonCompletion, formatApiError, sanitize } from '@/lib/apiUtils';
+import { coerceResumeShape } from '@/lib/resumeSchema';
+import { rateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
+    const { allowed } = rateLimit(`generate-tailored-resume:${getClientIp(request)}`, 15, 60_000);
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests. Please wait a moment and try again.' }, { status: 429 });
+    }
+
     const { resume_text, master_profile, job_description, missing_keywords, improved_bullets, job_intelligence } = await request.json();
 
     if ((!resume_text && !master_profile) || !job_description) {
@@ -14,8 +21,6 @@ export async function POST(request: Request) {
     const sanitizedJobDesc = sanitize(job_description);
     const sanitizedKeywords = (missing_keywords || []).map((k: string) => sanitize(k));
     const sanitizedResumeText = resume_text ? sanitize(resume_text) : null;
-
-    const openai = getOpenAI();
 
     // Build intelligence context if available
     const intelligenceContext = job_intelligence ? `
@@ -31,6 +36,11 @@ You are an expert resume writer and recruiter. Your task is to generate a fully 
 
 Guidelines:
 1. Maintain the user's real experience (do not fabricate facts, job titles, companies, or dates).
+1b. NEVER invent numbers. Do not add metrics, percentages, dollar amounts, team
+    sizes, or timeframes that are not already present in the source resume. If a
+    figure would strengthen a bullet but is not given, use a bracketed placeholder
+    like [X]% for the candidate to fill in. Fabricated numbers on a resume can cost
+    the candidate a job offer.
 2. Improve clarity, impact, and use strong action verbs.
 3. Integrate missing keywords naturally where relevant.
 4. Keep bullet points concise and ATS-friendly.
@@ -71,28 +81,23 @@ Return a valid JSON object strictly matching this structure (no markdown formatt
 }
 `;
 
-    const response = await withRetry(async () => {
-      return await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "You are a specialized JSON-outputting resume writing assistant. Return only raw valid JSON without markdown code blocks." },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.7,
-        response_format: { type: "json_object" }
-      });
+    const { data, usage } = await createJsonCompletion({
+      system: "You are a specialized JSON-outputting resume writing assistant. Return only raw valid JSON without markdown code blocks.",
+      prompt,
+      temperature: 0.7,
     });
 
-    const generatedResumeText = response.choices[0].message.content;
-    if (!generatedResumeText) {
-      throw new Error('No response from OpenAI');
-    }
+    // Smaller open-weight models sometimes omit or mistype sections — normalize
+    // to the expected shape rather than rendering a half-broken resume.
+    const { resume, warnings } = coerceResumeShape(data, {
+      fallbackProfile: master_profile ?? null,
+    });
 
-    const parsedData = JSON.parse(generatedResumeText);
     return NextResponse.json({
       success: true,
-      ...parsedData,
-      usage: response.usage
+      ...resume,
+      ...(warnings.length ? { warnings } : {}),
+      usage
     });
   } catch (error: any) {
     return NextResponse.json(

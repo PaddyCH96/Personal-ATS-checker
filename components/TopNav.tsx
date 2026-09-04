@@ -13,7 +13,7 @@ const navLinks = [
 
 export default function TopNav() {
     const pathname = usePathname();
-    const { totalCost } = useApiCost();
+    const { totalCost, isLocal, providerLabel } = useApiCost();
 
     return (
         <nav className="bg-white border-b border-neutral-200 sticky top-0 z-50">
@@ -29,12 +29,21 @@ export default function TopNav() {
                 </Link>
 
                 <div className="flex items-center gap-2 sm:gap-4">
-                    {/* API Cost Badge */}
-                    <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-full text-xs font-semibold tracking-wide shadow-sm" title="Total Running OpenAI API Cost">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        ${totalCost.toFixed(4)}
+                    {/* API Cost / Provider Badge */}
+                    <div
+                        className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-full text-xs font-semibold tracking-wide shadow-sm"
+                        title={isLocal ? `Running on ${providerLabel || 'a local model'} — no API cost` : 'Total running API cost'}
+                    >
+                        {isLocal ? (
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                            </svg>
+                        ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        )}
+                        {isLocal ? 'Local · Free' : `$${totalCost.toFixed(4)}`}
                     </div>
 
                     {/* Nav Links */}

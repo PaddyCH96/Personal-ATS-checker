@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getOpenAI, withRetry, formatApiError, sanitize } from '@/lib/apiUtils';
+import { createJsonCompletion, formatApiError, sanitize } from '@/lib/apiUtils';
+import { rateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
+    const { allowed } = rateLimit(`generate-cover-letter:${getClientIp(request)}`, 15, 60_000);
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests. Please wait a moment and try again.' }, { status: 429 });
+    }
+
     const { resume_data, job_description, job_intelligence } = await request.json();
 
     if (!resume_data || !job_description) {
@@ -12,7 +18,6 @@ export async function POST(request: Request) {
     }
 
     const sanitizedJobDesc = sanitize(job_description);
-    const openai = getOpenAI();
 
     const intelligenceContext = job_intelligence ? `
 Recruiter Intelligence:
@@ -49,26 +54,16 @@ Return a valid JSON object with this exact structure:
 }
 `;
 
-    const response = await withRetry(async () => {
-      return await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a specialized JSON-outputting cover letter writer. Return only raw valid JSON without markdown code blocks.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.7,
-        response_format: { type: 'json_object' }
-      });
+    const { data, usage } = await createJsonCompletion({
+      system: 'You are a specialized JSON-outputting cover letter writer. Return only raw valid JSON without markdown code blocks.',
+      prompt,
+      temperature: 0.7,
     });
 
-    const content = response.choices[0].message.content;
-    if (!content) throw new Error('No response from OpenAI');
-
-    const parsed = JSON.parse(content);
     return NextResponse.json({
       success: true,
-      ...parsed,
-      usage: response.usage
+      ...data,
+      usage
     });
   } catch (error: any) {
     return NextResponse.json(

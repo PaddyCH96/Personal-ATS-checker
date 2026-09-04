@@ -3,11 +3,17 @@ import { extractTextFromPDF } from '@/lib/pdfParser';
 import { extractKeywords } from '@/lib/keywordExtractor';
 import { calculateMatch } from '@/lib/matchEngine';
 import { formatApiError, sanitize } from '@/lib/apiUtils';
+import { rateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
     try {
+        const { allowed } = rateLimit(`analyze:${getClientIp(request)}`, 15, 60_000);
+        if (!allowed) {
+            return NextResponse.json({ success: false, error: 'Too many requests. Please wait a moment and try again.' }, { status: 429 });
+        }
+
         const formData = await request.formData();
 
         const resumeFile = formData.get('resume') as File | null;

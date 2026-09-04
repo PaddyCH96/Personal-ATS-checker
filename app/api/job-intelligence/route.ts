@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getOpenAI, withRetry, formatApiError, sanitize } from '@/lib/apiUtils';
+import { createJsonCompletion, formatApiError, sanitize } from '@/lib/apiUtils';
+import { rateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
+    const { allowed } = rateLimit(`job-intelligence:${getClientIp(request)}`, 15, 60_000);
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests. Please wait a moment and try again.' }, { status: 429 });
+    }
+
     const { job_description, resume_skills } = await request.json();
 
     if (!job_description) {
@@ -13,8 +19,6 @@ export async function POST(request: Request) {
 
     const sanitizedJobDesc = sanitize(job_description);
     const sanitizedSkills = (resume_skills || []).map((s: string) => sanitize(s));
-
-    const openai = getOpenAI();
 
     const resumeSkillsContext = sanitizedSkills.length > 0
       ? `\n\nThe candidate's current resume contains these skills: ${sanitizedSkills.join(', ')}. Use this to produce the gap_analysis section by comparing against the job requirements.`
@@ -63,28 +67,16 @@ Rules:
 - Return only raw valid JSON, no markdown.
 `;
 
-    const response = await withRetry(async () => {
-      return await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a specialized JSON-outputting recruiter intelligence assistant. Return only raw valid JSON without markdown code blocks.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.5,
-        response_format: { type: 'json_object' }
-      });
+    const { data, usage } = await createJsonCompletion({
+      system: 'You are a specialized JSON-outputting recruiter intelligence assistant. Return only raw valid JSON without markdown code blocks.',
+      prompt,
+      temperature: 0.5,
     });
 
-    const content = response.choices[0].message.content;
-    if (!content) {
-      throw new Error('No response from OpenAI');
-    }
-
-    const parsed = JSON.parse(content);
     return NextResponse.json({
       success: true,
-      ...parsed,
-      usage: response.usage
+      ...data,
+      usage
     });
   } catch (error: any) {
     return NextResponse.json(

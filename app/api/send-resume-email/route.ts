@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { jsPDF } from 'jspdf';
 import { formatApiError, isValidEmail, sanitize } from '@/lib/apiUtils';
+import { rateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,6 +95,11 @@ function generateCoverLetterPdf(text: string): Buffer {
 
 export async function POST(request: Request) {
   try {
+    const { allowed } = rateLimit(`send-resume-email:${getClientIp(request)}`, 5, 60_000);
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests. Please wait a moment and try again.' }, { status: 429 });
+    }
+
     const { recipient_email, message, resume_data, cover_letter_text } = await request.json();
 
     if (!recipient_email || !resume_data) {
