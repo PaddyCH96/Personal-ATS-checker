@@ -139,3 +139,59 @@ describe('findDroppedMetrics', () => {
     expect(dropped_metrics_notice).toMatch(/1 rewritten bullet lost a number/);
   });
 });
+
+describe('technology names are not metrics', () => {
+  // Regression: the rewrite prompt asks the model to weave in job-description
+  // keywords, so flagging S3/EC2/Log4j2 would cry wolf on every cloud role.
+  it.each([
+    ['AWS S3', 'Built data pipelines', 'Built data pipelines on AWS S3'],
+    ['EC2', 'Managed servers', 'Managed EC2 instances'],
+    ['Log4j2', 'Handled logging', 'Handled logging with Log4j2'],
+    ['OAuth2', 'Built auth', 'Built auth with OAuth2'],
+  ])('does not flag %s', (_name, original, improved) => {
+    expect(findUnsupportedMetrics(original, improved)).toEqual([]);
+  });
+
+  it('still catches a real fabrication alongside a tech term', () => {
+    expect(
+      findUnsupportedMetrics('Built pipelines', 'Built 12 pipelines on AWS S3')
+    ).toEqual(['12']);
+  });
+
+  it('treats numbers inside supplied keywords as legitimate', () => {
+    expect(
+      findUnsupportedMetrics('Wrote scripts', 'Wrote scripts in Python 3.11', ['Python 3.11'])
+    ).toEqual([]);
+  });
+});
+
+describe('audit uses the user bullets, not the model echo', () => {
+  it('catches a fabrication even when the model rewrites its own "original"', () => {
+    // Model claims the source already said 30% — it did not.
+    const { bullets, warning } = auditRewrittenBullets(
+      [{ original: 'Improved reporting by 30%', improved: 'Improved reporting by 30%' }],
+      { sourceBullets: ['Improved reporting'] }
+    );
+    expect(bullets[0].unsupported_metrics).toEqual(['30']);
+    expect(warning).toBeDefined();
+  });
+
+  it('falls back to the model original when no source is supplied', () => {
+    const { bullets } = auditRewrittenBullets([
+      { original: 'Built dashboards', improved: 'Built 12 dashboards' },
+    ]);
+    expect(bullets[0].unsupported_metrics).toEqual(['12']);
+  });
+
+  it('aligns source bullets positionally', () => {
+    const { bullets } = auditRewrittenBullets(
+      [
+        { original: 'a', improved: 'Led 5 analysts' },
+        { original: 'b', improved: 'Cut runtime 40%' },
+      ],
+      { sourceBullets: ['Managed 5 analysts', 'Cut runtime'] }
+    );
+    expect(bullets[0].unsupported_metrics).toBeUndefined(); // 5 is real
+    expect(bullets[1].unsupported_metrics).toEqual(['40']); // 40 invented
+  });
+});

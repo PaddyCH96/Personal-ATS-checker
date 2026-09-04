@@ -73,8 +73,12 @@ Return a valid JSON object with the following structure exactly (no markdown for
         });
 
         // Catch figures the model invented — or real ones it discarded — despite the prompt.
+        // Audited against the user's own bullets, not the model's echo of them.
         const { bullets: auditedBullets, warning, dropped_metrics_notice } =
-            auditRewrittenBullets(data?.rewritten_bullets);
+            auditRewrittenBullets(data?.rewritten_bullets, {
+                sourceBullets: bullets.map((b: unknown) => (typeof b === 'string' ? b : '')),
+                supportedTerms: sanitizedKeywords,
+            });
 
         return NextResponse.json({
             success: true,

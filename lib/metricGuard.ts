@@ -13,9 +13,14 @@ const PLACEHOLDER = /\[[^\]]*\]/g;
 
 /**
  * Numeric tokens: percentages, currency, multipliers, plain and decimal numbers.
- * Also catches written-out scale words that imply invented magnitude.
+ *
+ * Digits fused to letters are deliberately excluded — "S3", "EC2", "Log4j2" and
+ * "OAuth2" are technology names, not claims about the candidate's impact. The
+ * rewrite prompt actively asks the model to weave in job-description keywords,
+ * so without this the guard would cry wolf on nearly every cloud or data role
+ * and train users to dismiss the warning that matters.
  */
-const NUMBER_TOKEN = /\d+(?:[.,]\d+)*/g;
+const NUMBER_TOKEN = /(?<![A-Za-z0-9.])\d+(?:,\d{3})*(?:\.\d+)?(?![A-Za-z0-9])/g;
 
 const SCALE_WORDS = /\b(?:millions?|billions?|thousands?|dozens?|hundreds?)\b/gi;
 
@@ -38,12 +43,20 @@ function extractScaleWords(text: string): string[] {
 /**
  * Return the figures present in `improved` that have no basis in `original`.
  * An empty array means every number in the rewrite is traceable to the source.
+ *
+ * `supportedTerms` are keywords the model was explicitly asked to incorporate
+ * (e.g. "Python 3.11"); numbers occurring in them are legitimate, not invented.
  */
-export function findUnsupportedMetrics(original: string, improved: string): string[] {
+export function findUnsupportedMetrics(
+  original: string,
+  improved: string,
+  supportedTerms: string[] = []
+): string[] {
   if (!original || !improved) return [];
 
-  const originalNumbers = new Set(extractNumbers(original));
-  const originalScale = new Set(extractScaleWords(original));
+  const termText = supportedTerms.join(' ');
+  const originalNumbers = new Set([...extractNumbers(original), ...extractNumbers(termText)]);
+  const originalScale = new Set([...extractScaleWords(original), ...extractScaleWords(termText)]);
 
   const unsupported: string[] = [];
 
@@ -83,6 +96,16 @@ export interface BulletRewrite {
   dropped_metrics?: string[];
 }
 
+export interface AuditOptions {
+  /**
+   * The user's actual bullets, positionally aligned with the model's output.
+   * Authoritative baseline — the model's own `original` field is only a fallback.
+   */
+  sourceBullets?: string[];
+  /** Keywords the model was told to weave in; numbers inside them aren't fabrications. */
+  supportedTerms?: string[];
+}
+
 export interface MetricAuditResult {
   bullets: BulletRewrite[];
   /** Human-readable warning when any bullet contains an unverifiable figure. */
@@ -96,18 +119,28 @@ export interface MetricAuditResult {
  * Flags rather than strips: silently editing the text could mangle a legitimate
  * rewrite, and the candidate is the only one who knows their real numbers.
  */
-export function auditRewrittenBullets(bullets: unknown): MetricAuditResult {
+export function auditRewrittenBullets(
+  bullets: unknown,
+  options: AuditOptions = {}
+): MetricAuditResult {
   if (!Array.isArray(bullets)) return { bullets: [] };
+
+  const { sourceBullets = [], supportedTerms = [] } = options;
 
   let flaggedCount = 0;
   let droppedCount = 0;
 
-  const audited: BulletRewrite[] = bullets.map((entry) => {
+  const audited: BulletRewrite[] = bullets.map((entry, index) => {
     const item = (entry ?? {}) as Record<string, unknown>;
-    const original = typeof item.original === 'string' ? item.original : '';
+    const modelOriginal = typeof item.original === 'string' ? item.original : '';
     const improved = typeof item.improved === 'string' ? item.improved : '';
 
-    const unsupported = findUnsupportedMetrics(original, improved);
+    // The model authors BOTH fields, so its `original` cannot be trusted as the
+    // baseline — a model that quietly paraphrases the original would hide its own
+    // fabrication. Compare against the user's actual bullet whenever we have it.
+    const original = typeof sourceBullets[index] === 'string' ? sourceBullets[index] : modelOriginal;
+
+    const unsupported = findUnsupportedMetrics(original, improved, supportedTerms);
     const dropped = findDroppedMetrics(original, improved);
     if (unsupported.length > 0) flaggedCount++;
     if (dropped.length > 0) droppedCount++;

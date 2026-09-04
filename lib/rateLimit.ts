@@ -10,9 +10,27 @@ export interface RateLimitResult {
   resetAt: number;
 }
 
+/**
+ * Drop buckets whose window has closed.
+ *
+ * Without this the map grows one permanent entry per unique IP, which a
+ * long-running public instance accumulates indefinitely from bot traffic.
+ * Swept lazily on write rather than on a timer, so it costs nothing at idle.
+ */
+const SWEEP_THRESHOLD = 1000;
+
+function sweepExpired(now: number): void {
+  for (const [key, bucket] of buckets) {
+    if (now >= bucket.resetAt) buckets.delete(key);
+  }
+}
+
 /** Allow `limit` requests per `windowMs` per key (e.g. IP + route name). */
 export function rateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
   const now = Date.now();
+
+  if (buckets.size > SWEEP_THRESHOLD) sweepExpired(now);
+
   const bucket = buckets.get(key);
 
   if (!bucket || now >= bucket.resetAt) {
