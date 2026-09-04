@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getOpenAI, withRetry, formatApiError, sanitize } from '@/lib/apiUtils';
+import { createJsonCompletion, formatApiError, sanitize } from '@/lib/apiUtils';
+import { rateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
     try {
+        const { allowed } = rateLimit(`rewrite-bullets:${getClientIp(request)}`, 15, 60_000);
+        if (!allowed) {
+            return NextResponse.json({ success: false, error: 'Too many requests. Please wait a moment and try again.' }, { status: 429 });
+        }
+
         const { job_description, missing_keywords, bullets } = await request.json();
 
         if (!bullets || bullets.length === 0) {
@@ -13,8 +19,6 @@ export async function POST(request: Request) {
 
         const sanitizedJobDesc = sanitize(job_description || '');
         const sanitizedKeywords = (missing_keywords || []).map((k: string) => sanitize(k));
-
-        const openai = getOpenAI();
 
         const prompt = `
 You are an expert resume writer and ATS optimizer.
@@ -45,28 +49,16 @@ Return a valid JSON object with the following structure exactly (no markdown for
 }
 `;
 
-        const response = await withRetry(async () => {
-            return await openai.chat.completions.create({
-                model: "gpt-4o-mini",
-                messages: [
-                    { role: "system", content: "You are a specialized JSON-outputting resume writing assistant. Return only raw valid JSON without markdown code blocks." },
-                    { role: "user", content: prompt }
-                ],
-                temperature: 0.7,
-                response_format: { type: "json_object" }
-            });
+        const { data, usage } = await createJsonCompletion({
+            system: "You are a specialized JSON-outputting resume writing assistant. Return only raw valid JSON without markdown code blocks.",
+            prompt,
+            temperature: 0.7,
         });
 
-        const rewriteResult = response.choices[0].message.content;
-        if (!rewriteResult) {
-            throw new Error('No response from OpenAI');
-        }
-
-        const parsedData = JSON.parse(rewriteResult);
         return NextResponse.json({
             success: true,
-            ...parsedData,
-            usage: response.usage
+            ...data,
+            usage
         });
     } catch (error: any) {
         return NextResponse.json(
